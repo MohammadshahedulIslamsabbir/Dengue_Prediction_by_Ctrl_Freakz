@@ -220,5 +220,5 @@ Update this disclosure if any other AI assistants or external APIs were used by 
 - Washeka Rahman
 - Samin Yeasar Islam
 
-**Challenge:** AI for Urban Dengue Outbreak  
+**Challenge:** # Dengue Outburst Prediction
 **Hackathon:** Preliminary Round — Phase 1
