@@ -1,0 +1,249 @@
+# System Architecture — Dengue Outburst Prediction
+
+**Team:** CTRL FREAKZ  
+**Challenge:** AI for Urban Dengue Outbreak  
+**Application:** Dengue Outbreak Prediction
+
+## 1. System Overview
+
+The system is designed to predict ward-level dengue cases 2, 3, and 4 weeks ahead using historical dengue cases, weather measurements, and ward vulnerability indicators.
+
+It uses a machine learning pipeline with three independent Random Forest Regression models. The predictions are displayed through an interactive Streamlit dashboard.
+
+The system is designed as a local-first prototype. Trained models are saved and loaded locally, reducing repeated training and unnecessary external API calls.
+
+## 2. System Architecture and Data Flow
+
+The following diagram shows the complete workflow from the original dataset to the dashboard predictions.
+
+```mermaid
+flowchart TD
+    A["Hackathon Dengue Dataset"] --> B["Data Loading and Inspection"]
+    B --> C["Data Cleaning and Preprocessing"]
+    C --> D["Ward-Level Feature Engineering"]
+    D --> E["Chronological Data Split"]
+
+    E --> F["Training Data"]
+    E --> G["Validation Data"]
+    E --> H["Test Data"]
+
+    F --> I["Random Forest Model Training"]
+    G --> J["Model Evaluation and Selection"]
+    I --> J
+    J --> K["Final Model Training"]
+    K --> L["Save Models using Joblib"]
+
+    L --> M["2-Week Model"]
+    L --> N["3-Week Model"]
+    L --> O["4-Week Model"]
+
+    P["Latest Processed Ward Features"] --> Q["Streamlit Application"]
+    M --> Q
+    N --> Q
+    O --> Q
+
+    Q --> R["Dengue Case Predictions"]
+    R --> S["Risk Classification"]
+    S --> T["Interactive Dashboard"]
+```
+
+### Main System Components
+
+1. **Data Processing:** Loads and prepares historical dengue and weather data.
+2. **Feature Engineering:** Calculates rainfall lags, rolling rainfall totals, temperature lags, humidity lags, and previous dengue case features.
+3. **Model Training:** Trains three separate Random Forest Regression models.
+4. **Model Storage:** Saves trained models as local serialized files using Joblib.
+5. **Prediction Engine:** Loads saved models and generates predictions for selected wards.
+6. **Risk Classification:** Converts predicted values into Low, Medium, High, and Critical risk categories.
+7. **Dashboard:** Displays predictions, ward information, risk distribution, feature importance, and model evaluation results.
+
+## 3. Weather Processing and Feature Engineering
+
+The original dataset contains weekly observations for 60 wards across five cities in Bangladesh.
+
+Important input variables include:
+
+- Average temperature (`avg_temp_c`)
+- Maximum temperature (`max_temp_c`)
+- Minimum temperature (`min_temp_c`)
+- Rainfall (`rainfall_mm`)
+- Relative humidity (`relative_humidity_pct`)
+- Population density (`population_density_sqkm`)
+- Waterlogging risk (`water_logging_risk_index`)
+- Sanitation score (`sanitation_score`)
+- Historical dengue cases (`dengue_cases`)
+
+### Multi-Week Rainfall Features
+
+The data is sorted by `ward_id` and date before calculating historical features.
+
+Rainfall lag features:
+
+- `rainfall_lag_1`
+- `rainfall_lag_2`
+- `rainfall_lag_3`
+- `rainfall_lag_4`
+
+Rolling rainfall features:
+
+- `rainfall_sum_2w`
+- `rainfall_sum_3w`
+- `rainfall_sum_4w`
+
+Rolling rainfall calculations use previous observations by shifting the rainfall series before applying the rolling window. This prevents the current or future rainfall observation from leaking into historical features.
+
+Temperature, humidity, and dengue case lags are also calculated separately for each ward.
+
+Three future prediction targets are created:
+
+- `dengue_cases_t_plus_2`
+- `dengue_cases_t_plus_3`
+- `dengue_cases_t_plus_4`
+
+All lag and future-target calculations are grouped by `ward_id` to prevent data from different wards from mixing.
+
+## 4. Chronological Training, Validation, and Test Split
+
+The project uses a chronological split instead of random splitting.
+
+This approach helps simulate real-world forecasting, where a model learns from past observations and predicts future outcomes.
+
+| Dataset | Date Range | Records |
+|---|---|---:|
+| Training | February 2016 – November 2023 | 24,540 |
+| Validation | January 2024 – December 2024 | 2,940 |
+| Test | January 2025 – December 2025 | 2,880 |
+
+The split boundaries were selected to avoid overlap between future prediction targets and the next dataset period.
+
+A total of 480 boundary records were excluded to prevent target-window leakage.
+
+The training dataset is used to fit the models. The validation dataset is used for model evaluation and selection. The test dataset is reserved for final performance evaluation.
+
+## 5. Machine Learning Model Selection
+
+The project uses three independent Random Forest Regression pipelines:
+
+- 2-week dengue prediction model.
+- 3-week dengue prediction model.
+- 4-week dengue prediction model.
+
+### Why Random Forest Regression?
+
+Random Forest Regression was selected because:
+
+1. It works well with structured and tabular datasets.
+2. It can learn nonlinear relationships between weather conditions, ward characteristics, and dengue cases.
+3. It combines multiple decision trees to generate predictions.
+4. It can capture interactions between different input features.
+5. It provides feature importance information.
+
+Categorical features such as city and ward ID are processed using OneHotEncoder. Numerical features are passed through the numerical preprocessing pipeline.
+
+### Final Model Parameters
+
+The final models use the following parameters:
+
+| Parameter | Value |
+|---|---:|
+| n_estimators | 200 |
+| max_depth | 15 |
+| min_samples_leaf | 4 |
+| random_state | 42 |
+
+Each prediction horizon has its own independently trained model.
+
+## 6. Model Evaluation
+
+The models were evaluated using Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE).
+
+| Forecast Horizon | Validation MAE | Test MAE | Validation RMSE | Test RMSE |
+|---|---:|---:|---:|---:|
+| 2 Weeks | 1.1137 | 1.3849 | 2.0538 | 2.5800 |
+| 3 Weeks | 1.3498 | 1.5697 | 2.4095 | 2.7012 |
+| 4 Weeks | 1.4402 | 1.6282 | 2.5153 | 3.0125 |
+
+Lower MAE and RMSE values indicate better prediction performance.
+
+The 2-week model achieved the lowest test MAE and RMSE among the three prediction horizons.
+
+The models were also compared with simple mean and persistence baselines. Random Forest performed better on MAE and RMSE for all three prediction horizons.
+
+## 7. Prediction and Risk Classification
+
+During application execution, the Streamlit dashboard loads the saved models and processed ward features.
+
+Users can select a city, ward, and prediction period.
+
+The selected model generates an estimated dengue case value for the selected ward.
+
+The prediction is then converted into a risk category using the following project-defined thresholds:
+
+| Predicted Cases | Risk Category |
+|---|---|
+| Below 1 | Low |
+| 1–4 | Medium |
+| Above 4–10 | High |
+| Above 10 | Critical |
+
+These thresholds are operational choices for this prototype. They are not official government or WHO outbreak alert thresholds.
+
+The application also compares predictions across all three forecast horizons.
+
+## 8. Compute and API Cost Efficiency
+
+The prototype uses local machine learning inference to reduce unnecessary external service usage.
+
+### Local Model Serialization
+
+Three trained models are stored in the `models/` directory:
+
+- `dengue_model_2_weeks.pkl`
+- `dengue_model_3_weeks.pkl`
+- `dengue_model_4_weeks.pkl`
+
+Joblib is used to save and load the trained pipelines. The application does not retrain models every time a user opens the dashboard.
+
+### Streamlit Caching
+
+Two caching mechanisms are used:
+
+- `st.cache_resource` caches loaded machine learning models.
+- `st.cache_data` caches processed ward data and model evaluation CSV files.
+
+These mechanisms reduce repeated disk loading and unnecessary processing during dashboard interactions.
+
+### API and LLM Cost Controls
+
+- The current prediction workflow does not require a live weather API.
+- No external LLM API is used for prediction or inference.
+- Predictions are generated locally using saved Random Forest models.
+- No repeated model training occurs during normal dashboard usage.
+- Historical data and evaluation results are loaded from local files.
+- External API calls are not part of the current inference pipeline.
+
+ChatGPT was used as a development assistant, not as a runtime prediction service.
+
+## 9. Current Limitations
+
+- The current prototype uses historical dataset features rather than live weather data.
+- The latest available input date for the demonstration predictions is 1 December 2025.
+- The application does not currently generate live 2026 forecasts.
+- Predicted values are model estimates and do not represent confirmed patient counts.
+- Risk categories use project-defined thresholds.
+- Feature importance indicates model influence, not causation.
+
+The system is intended as an early-warning decision-support prototype, not a replacement for public health authorities.
+
+## 10. Future Improvements
+
+Possible future improvements include:
+
+- Integration with reliable live weather data sources.
+- Updated ward-level dengue surveillance data.
+- Interactive geographic ward risk heatmaps.
+- Prediction confidence intervals.
+- Automated model retraining.
+- Deployment for public health monitoring.
+
+These improvements can be developed in later stages while maintaining the current architecture.
